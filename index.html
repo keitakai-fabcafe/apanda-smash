@@ -597,6 +597,7 @@ function draw(){
     ctx.fillStyle=halo; ctx.beginPath(); ctx.arc(0,0,rr,0,7); ctx.fill();
     ctx.rotate(en.rot);
     ctx.font=(en.r*2)+'px serif';
+    ctx.fillStyle='#2b2320';   // 後光のグラデを引き継がない（スマホで絵文字が薄くなるのを防ぐ）
     ctx.fillText(en.e, 0, 0);
     ctx.restore();
   }
