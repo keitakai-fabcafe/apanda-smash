@@ -57,8 +57,8 @@
     <p>
       パンダは絵本の<b>栄の街</b>をてくてく歩いて進むよ。<br>
       前から来る動物を<b>タップ / スペース</b>でぶっ飛ばそう！<br><br>
-      🐭 ネズミ -5 ／ 🐿️ リス -25 ／ 🦍 ゴリラ -50<br>
-      🕊️ <b>ボス・鳩 -100</b>（時々やってくる！）<br>
+      🐭 ネズミ -5（超すばしっこい）／ 🐿️ リス -25（速い）／ 🦍 ゴリラ -50<br>
+      🕊️ <b>ボス・鳩</b>…急に止まったり高速で突っ込む！<b>当たったら一撃でゲームオーバー</b><br>
       🍪 クッキー +15 ／ 🥐 スコーン +30<br>
       🍩 <b>シュークリーム</b>…レア！<b>最大HPが+10</b><br><br>
       ➡️ を押しっぱなしで<b>ダッシュ</b>、テレビ塔や観覧車を横目に先へ進もう。
@@ -83,9 +83,9 @@ const INK = '#4a352a';
 
 // 敵：ネズミ→リス→ゴリラ、ボスは鳩
 const ENEMIES = [
-  {e:'🐭', name:'ネズミ',  dmg:5,   r:15, reward:10, speed:1.3, weight:6},
-  {e:'🐿️', name:'リス',   dmg:25,  r:18, reward:20, speed:1.1, weight:4},
-  {e:'🦍', name:'ゴリラ',  dmg:50,  r:27, reward:30, speed:0.6, weight:2},
+  {e:'🐭', name:'ネズミ',  dmg:5,   r:15, reward:10, speed:3.9, weight:6},  // 超高速(3倍)
+  {e:'🐿️', name:'リス',   dmg:25,  r:18, reward:20, speed:3.3, weight:4},  // さらに倍
+  {e:'🦍', name:'ゴリラ',  dmg:50,  r:27, reward:30, speed:1.2, weight:2},  // 倍
 ];
 const BOSS = {e:'🕊️', name:'鳩', dmg:100, r:32, reward:100, speed:1.0};
 
@@ -130,13 +130,13 @@ function computeTod(){
 }
 
 let hp, maxHp, dist, worldX, baseSpeed, entities, particles, texts, spawnT, sweetT, bossT,
-    keys, punch, panda, running, gameOver, dashing, cloudX, todMs, phasePrev;
+    keys, punch, panda, running, gameOver, dashing, cloudX, todMs, phasePrev, diffLevelPrev;
 
 function reset(){
   hp = 100; maxHp = 100; dist = 0; worldX = 0; baseSpeed = 2.4;
   entities = []; particles = []; texts = [];
   spawnT = 900; sweetT = 2200; bossT = 15000; keys = {}; cloudX = 0;
-  todMs = 0; phasePrev = 0;
+  todMs = 0; phasePrev = 0; diffLevelPrev = 0;
   panda = { bob:0, step:0, y:GROUND, heal:0, hurt:0 };
   punch = { active:false, t:0 };
   running = true; gameOver = false; dashing = false;
@@ -460,7 +460,8 @@ function drawPanda(punchAmt, step){
 /* ---------- entities ---------- */
 function spawnAnimal(){
   const k=weightedPick(ENEMIES);
-  const ownSpeed=k.speed*(0.7+Math.random()*0.6)+dist*0.00004;
+  const mult=Math.pow(2, Math.floor(todMs/60000));   // 1分ごとに速度が倍
+  const ownSpeed=k.speed*(0.7+Math.random()*0.6)*mult+dist*0.00004;
   entities.push({ type:'animal', e:k.e, name:k.name, dmg:k.dmg, reward:k.reward, x:W+40, y:GROUND-Math.round(k.r*0.86), r:k.r, ownSpeed, hit:false, rot:0, vr:0, bob:Math.random()*7 });
 }
 function spawnBoss(){
@@ -518,6 +519,9 @@ function update(dt){
   todMs += dt;
   const ph = Math.floor((todMs/PHASE_MS)%PHASES.length);
   if(ph!==phasePrev){ phasePrev=ph; floatText(W/2, 78, PHASES[ph].name+'になったよ', PHASES[ph].night>0.5?'#ffe08a':'#D80C0E'); }
+  // 1分ごとにネズミ・リス・ゴリラのスピードが倍
+  const lvl = Math.floor(todMs/60000);
+  if(lvl!==diffLevelPrev){ diffLevelPrev=lvl; if(lvl>0) floatText(W/2, 104, '⚡スピードUP！ ×'+Math.pow(2,lvl), '#e0574f'); }
 
   dashing = keys['ArrowRight']||keys['d']||keys['_touchDash'];
   const slow = keys['ArrowLeft']||keys['a'];
@@ -541,10 +545,23 @@ function update(dt){
       if(en.gravity) en.vy+=0.45;
       if(en.fade!=null){ en.fade-=dt*0.004; }
     }else{
-      en.x -= (speed + (en.ownSpeed||0));
-      en.rot = Math.sin((panda.step+en.bob))*0.12;
-      if(en.boss) en.y = GROUND-46 + Math.sin(panda.step*0.8+en.fly)*20;
-      if(en.type==='sweet') en.y += Math.sin(panda.step*1.5+en.float)*0.4;
+      if(en.boss){
+        // 鳩ボス：縦にふわふわ＋横は「急停止／高速ダッシュ」で動きが読めん
+        en.y = GROUND-46 + Math.sin(panda.step*0.8+en.fly)*20;
+        en.mtimer = (en.mtimer||0) - dt;
+        if(en.mtimer<=0){
+          const r=Math.random();
+          if(r<0.45){ en.mspeed=0;                  en.mtimer=420+Math.random()*560; } // 急停止（殴るスキ）
+          else if(r<0.78){ en.mspeed=12+Math.random()*6; en.mtimer=180+Math.random()*220; } // 高速ダッシュ(倍)
+          else { en.mspeed=4+Math.random()*2.8;     en.mtimer=460+Math.random()*520; } // ふつう(倍)
+        }
+        en.x -= (speed*0.4 + en.mspeed);
+        en.rot = Math.sin(panda.step*1.4)*0.1;
+      }else{
+        en.x -= (speed + (en.ownSpeed||0));
+        en.rot = Math.sin((panda.step+en.bob))*0.12;
+        if(en.type==='sweet') en.y += Math.sin(panda.step*1.5+en.float)*0.4;
+      }
       if(en.type==='sweet'){
         // お菓子：触れたら回復
         if(Math.hypot(en.x-PANDA_X, en.y-(GROUND-34)) < en.r+22) collectSweet(en);
@@ -554,9 +571,14 @@ function update(dt){
         const touching = (en.x - reach) <= PANDA_X+16 && en.x > PANDA_X-24;
         const vertOK = en.boss ? (en.y > GROUND-52) : true;  // ボスは低く来た時だけ当たる
         if(touching && vertOK){
-          en.hit=true; en.vx=-4; en.vy=-5; en.vr=0.3; en.gravity=true;
-          const dmg=en.dmg||5; hp-=dmg; panda.hurt=1;   // 被弾：パンダが赤く光る
-          burst(en.x,en.y,'216,12,14',dmg>=50?18:10); floatText(en.x,en.y-24,'-'+dmg,'#D80C0E'); shake=Math.min(18,6+dmg*0.2);
+          en.hit=true; en.vx=-4; en.vy=-5; en.vr=0.3; en.gravity=true; panda.hurt=1;
+          if(en.boss){
+            hp=0;                                          // 鳩は当たったら一撃でゲームオーバー
+            burst(en.x,en.y,'216,12,14',28); floatText(PANDA_X,GROUND-70,'一撃！','#D80C0E'); shake=20;
+          }else{
+            const dmg=en.dmg||5; hp-=dmg;                  // 被弾：パンダが赤く光る
+            burst(en.x,en.y,'216,12,14',dmg>=50?18:10); floatText(en.x,en.y-24,'-'+dmg,'#D80C0E'); shake=Math.min(18,6+dmg*0.2);
+          }
         }
       }
     }
