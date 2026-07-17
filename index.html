@@ -161,7 +161,7 @@ const ENEMIES = [
   {e:'💪', name:'ムキムキぱんだ', dmg:25, r:26, reward:20, speed:3.3, weight:4, img:'muki', disp:80},  // 主人公よりひとまわり小
   {e:'🦖', name:'がおーぱんだ', dmg:50, r:50, reward:30, speed:1.2, weight:2, img:'gao', disp:192},  // 主人公の倍サイズ
 ];
-const BOSS = {e:'🔥', name:'ブラックぱんだ', dmg:100, r:36, reward:100, speed:1.0, img:'black', disp:96};
+const BOSS = {e:'🔥', name:'ブラックぱんだ', dmg:100, r:36, reward:100, speed:1.0, img:'black', disp:144}; // 主人公の1.5倍
 
 // スイーツ：クッキー+15 / キャロットケーキ+30 / シュークリームはレア(最大HP+10)
 const SWEETS = [
@@ -552,7 +552,7 @@ function spawnAnimal(){
 }
 function spawnBoss(){
   const b=BOSS;
-  entities.push({ type:'animal', boss:true, e:b.e, name:b.name, dmg:b.dmg, reward:b.reward, img:b.img, disp:b.disp, x:W+50, y:GROUND-46, r:b.r, ownSpeed:b.speed, hit:false, rot:0, vr:0, bob:Math.random()*7, fly:Math.random()*7 });
+  entities.push({ type:'animal', boss:true, e:b.e, name:b.name, dmg:b.dmg, reward:b.reward, img:b.img, disp:b.disp, x:W+50, y:GROUND-64, r:b.r, ownSpeed:b.speed, hit:false, rot:0, vr:0, bob:Math.random()*7, fly:Math.random()*7 });
   floatText(W/2, 60, '⚠ ボス・ブラックぱんだ襲来！', '#D80C0E');
 }
 function spawnSweet(){
@@ -634,7 +634,7 @@ function update(dt){
     }else{
       if(en.boss){
         // 鳩ボス：縦にふわふわ＋横は「急停止／高速ダッシュ」で動きが読めん
-        en.y = GROUND-46 + Math.sin(panda.step*0.8+en.fly)*20;
+        en.y = GROUND-64 + Math.sin(panda.step*0.8+en.fly)*20;
         en.mtimer = (en.mtimer||0) - dt;
         if(en.mtimer<=0){
           const r=Math.random();
@@ -654,7 +654,7 @@ function update(dt){
         if(Math.hypot(en.x-PANDA_X, en.y-(GROUND-34)) < en.r+22) collectSweet(en);
       }else if(en.boss){
         // ボスは大きいので、体が重なったら確実に判定（すり抜け防止）
-        if(Math.abs(en.x-PANDA_X) < 54){
+        if(Math.abs(en.x-PANDA_X) < 62){
           en.hit=true; en.vx=-4; en.vy=-5; en.vr=0.3; en.gravity=true; panda.hurt=1; sfxHurt();
           hp=0;                                          // ボスは当たったら一撃でゲームオーバー
           burst(en.x,en.y,'216,12,14',28); floatText(PANDA_X,GROUND-70,'一撃！','#D80C0E'); shake=20;
@@ -789,16 +789,80 @@ function endGame(){
   document.getElementById('shareBtn').onclick=shareResult;
 }
 
+// 結果カード画像を生成（主人公がボスをぶっ飛ばす絵＋スコア）
+function burstStar(x,cx,cy,r,fill,stroke){
+  const pts=12; x.beginPath();
+  for(let i=0;i<pts*2;i++){ const a=Math.PI*i/pts - Math.PI/2; const rad=(i%2)? r*0.55 : r; const px=cx+Math.cos(a)*rad, py=cy+Math.sin(a)*rad; i?x.lineTo(px,py):x.moveTo(px,py); }
+  x.closePath(); x.fillStyle=fill; x.fill(); x.lineWidth=6; x.strokeStyle=stroke; x.lineJoin='round'; x.stroke();
+}
+function makeShareImage(){
+  const S=1080, INKC='#4a352a';
+  const c=document.createElement('canvas'); c.width=S; c.height=S;
+  const x=c.getContext('2d');
+  const JP='"Hiragino Maru Gothic ProN","Hiragino Kaku Gothic ProN","Yu Gothic",sans-serif';
+  // 空
+  const g=x.createLinearGradient(0,0,0,S);
+  g.addColorStop(0,'#bfe3ff'); g.addColorStop(.6,'#e9f4ff'); g.addColorStop(1,'#fff2d8');
+  x.fillStyle=g; x.fillRect(0,0,S,S);
+  x.fillStyle='#ffe9a8'; x.beginPath(); x.arc(S-140,150,64,0,7); x.fill();
+  // 地面
+  const groundY=S-210;
+  x.fillStyle='#ecdfc8'; x.fillRect(0,groundY,S,S-groundY);
+  x.fillStyle='#b9a894'; x.fillRect(0,groundY+70,S,S-groundY-70);
+  x.strokeStyle=INKC; x.lineWidth=7; x.beginPath(); x.moveTo(0,groundY); x.lineTo(S,groundY); x.stroke();
+  // タイトル
+  x.textAlign='center'; x.textBaseline='middle';
+  x.fillStyle='#D80C0E'; x.font='900 70px '+JP;
+  x.fillText('【あぱんだスマッシュ】', S/2, 78);
+  // スコア
+  const m=Math.floor(dist);
+  x.fillStyle=INKC; x.font='900 150px '+JP;
+  x.fillText(m+'m', S/2, 220);
+  x.font='800 46px '+JP; x.fillText('栄を歩いた！', S/2, 320);
+  x.fillStyle='#e0854a'; x.font='800 44px '+JP;
+  x.fillText('🏆 自己ベスト '+best+'m', S/2, 384);
+  // 主人公（左・パンチ）
+  const ph=330;
+  if(imgPunch.complete&&imgPunch.naturalWidth){
+    const pw=imgPunch.naturalWidth/imgPunch.naturalHeight*ph;
+    x.drawImage(imgPunch, S*0.29-pw/2, groundY-ph, pw, ph);
+  }
+  // ボス（右・のけぞる／主人公の1.5倍）
+  const bh=ph*1.5;
+  if(imgBlack.complete&&imgBlack.naturalWidth){
+    const bw=imgBlack.naturalWidth/imgBlack.naturalHeight*bh;
+    x.save(); x.translate(S*0.73, groundY-bh*0.42); x.rotate(0.2);
+    x.drawImage(imgBlack, -bw/2, -bh/2, bw, bh); x.restore();
+  }
+  // 衝撃（星のみ・文字なし）
+  const ix=S*0.505, iy=groundY-240;
+  burstStar(x, ix, iy, 92, '#ffd21e', '#e0574f');
+  burstStar(x, ix, iy, 54, '#fff', '#e0574f');
+  // 下ハッシュタグ
+  x.fillStyle=INKC; x.font='800 40px '+JP; x.textBaseline='middle';
+  x.fillText('#あぱんだスマッシュ', S/2, S-45);
+  return c;
+}
+function dataURLtoFile(durl,name){
+  const arr=durl.split(','), mime=arr[0].match(/:(.*?);/)[1], bstr=atob(arr[1]);
+  let n=bstr.length; const u8=new Uint8Array(n); while(n--) u8[n]=bstr.charCodeAt(n);
+  return new File([u8],name,{type:mime});
+}
 function shareResult(){
   const m=Math.floor(dist);
-  const text='【あぱんだスマッシュ】で栄を '+m+'m 歩いたよ！🐼🌆 #あぱんだスマッシュ';
+  const text='【あぱんだスマッシュ】で栄を '+m+'m 歩いたよ！🐼🔥 #あぱんだスマッシュ';
   const url=(location.protocol.indexOf('http')===0) ? (location.origin+location.pathname) : '';
-  if(navigator.share){
-    navigator.share({title:'あぱんだスマッシュ', text:text, url:url}).catch(()=>{});
-  }else{
-    const tw='https://twitter.com/intent/tweet?text='+encodeURIComponent(text)+(url?('&url='+encodeURIComponent(url)):'');
-    window.open(tw,'_blank','noopener');
+  let file=null;
+  try{ file=dataURLtoFile(makeShareImage().toDataURL('image/png'),'apanda-smash.png'); }catch(e){ file=null; }
+  // スマホ等：画像そのものを共有
+  if(file && navigator.canShare && navigator.canShare({files:[file]})){
+    navigator.share({files:[file], text:text, url:url, title:'あぱんだスマッシュ'}).catch(()=>{});
+    return;
   }
+  // フォールバック：画像を保存＋X投稿画面を開く
+  if(file){ const a=document.createElement('a'); a.href=URL.createObjectURL(file); a.download='apanda-smash.png'; document.body.appendChild(a); a.click(); a.remove(); }
+  const tw='https://twitter.com/intent/tweet?text='+encodeURIComponent(text)+(url?('&url='+encodeURIComponent(url)):'');
+  window.open(tw,'_blank','noopener');
 }
 function start(){ overlay.classList.add('hidden'); reset(); initAudio(); resumeAudio(); startBGM(); }
 document.getElementById('startBtn').onclick=start;
