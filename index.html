@@ -50,16 +50,17 @@
     <span>❤️ <span id="hpNum">100/100</span></span>
     <div id="hpbar"><div id="hpfill"></div></div>
     <span id="scoreLabel">0m</span>
+    <button id="muteBtn" title="音のON/OFF" style="background:none;border:none;font-size:18px;cursor:pointer;padding:0 2px;margin-left:8px;box-shadow:none;">🔊</button>
   </div>
   <canvas id="game" width="480" height="600"></canvas>
   <div id="overlay">
     <h2>【あぱんだスマッシュ】</h2>
     <p>
-      パンダは絵本の<b>栄の街</b>をてくてく歩いて進むよ。<br>
-      前から来る動物を<b>タップ / スペース</b>でぶっ飛ばそう！<br><br>
+      あぱんだは絵本の<b>栄の街</b>をてくてく歩いて進むよ。<br>
+      前から来る敵を<b>タップ / スペース</b>でぶっ飛ばそう！<br><br>
       👿 あくまぱんだ -5（超すばしっこい）／ 💪 ムキムキぱんだ -25（速い）／ 🦖 がおーぱんだ -50<br>
       🔥 <b>ボス・ブラックぱんだ</b>…急に止まったり高速で突っ込む！<b>当たったら一撃でゲームオーバー</b><br>
-      クッキー+15／ドーナツ+20／クロワッサン+25／スコーン+30<br>
+      クッキー+15／ドーナツ+20／クロワッサン+25／キャロットケーキ+30<br>
       <b>シュークリーム</b>…レア！<b>最大HPが+10</b><br><br>
       ➡️ を押しっぱなしで<b>ダッシュ</b>、テレビ塔や観覧車を横目に先へ進もう。
     </p>
@@ -77,6 +78,69 @@ const hpNum = document.getElementById('hpNum');
 const scoreLabel = document.getElementById('scoreLabel');
 const overlay = document.getElementById('overlay');
 
+/* ===== サウンド（Web Audioで合成・外部ファイル不要）===== */
+let actx=null, masterGain=null, bgmGain=null, soundOn=true, bgmOn=false, bgmTimeout=null;
+function initAudio(){
+  if(actx) return;
+  try{
+    actx = new (window.AudioContext||window.webkitAudioContext)();
+    masterGain = actx.createGain(); masterGain.gain.value = soundOn?0.6:0; masterGain.connect(actx.destination);
+    bgmGain = actx.createGain(); bgmGain.gain.value = 0.5; bgmGain.connect(masterGain);
+  }catch(e){ actx=null; }
+}
+function resumeAudio(){ if(actx && actx.state==='suspended') actx.resume(); }
+function tone(freq,start,dur,type,vol,dest){
+  if(!actx) return;
+  const o=actx.createOscillator(), g=actx.createGain();
+  o.type=type||'square'; o.frequency.value=freq;
+  g.gain.setValueAtTime(0.0001,start);
+  g.gain.linearRampToValueAtTime(vol,start+0.02);
+  g.gain.exponentialRampToValueAtTime(0.0001,start+dur);
+  o.connect(g); g.connect(dest||masterGain); o.start(start); o.stop(start+dur+0.02);
+}
+function noiseBurst(start,dur,vol,freq,dest){
+  if(!actx) return;
+  const n=Math.floor(actx.sampleRate*dur), buf=actx.createBuffer(1,n,actx.sampleRate), d=buf.getChannelData(0);
+  for(let i=0;i<n;i++) d[i]=Math.random()*2-1;
+  const src=actx.createBufferSource(); src.buffer=buf;
+  const f=actx.createBiquadFilter(); f.type='bandpass'; f.frequency.value=freq||1200; f.Q.value=0.7;
+  const g=actx.createGain(); g.gain.setValueAtTime(vol,start); g.gain.exponentialRampToValueAtTime(0.0001,start+dur);
+  src.connect(f); f.connect(g); g.connect(dest||masterGain); src.start(start); src.stop(start+dur);
+}
+function slide(f0,f1,start,dur,type,vol,dest){
+  if(!actx) return;
+  const o=actx.createOscillator(), g=actx.createGain();
+  o.type=type||'triangle'; o.frequency.setValueAtTime(f0,start); o.frequency.exponentialRampToValueAtTime(f1,start+dur);
+  g.gain.setValueAtTime(0.0001,start); g.gain.linearRampToValueAtTime(vol,start+0.03); g.gain.exponentialRampToValueAtTime(0.0001,start+dur);
+  o.connect(g); g.connect(dest||masterGain); o.start(start); o.stop(start+dur+0.02);
+}
+// 攻撃ヒット＝バシュ
+function sfxHit(){ if(!actx)return; const t=actx.currentTime; noiseBurst(t,0.12,0.5,1700); slide(700,180,t,0.1,'square',0.25); }
+// 被弾＝デュシュ
+function sfxHurt(){ if(!actx)return; const t=actx.currentTime; noiseBurst(t,0.2,0.6,450); slide(320,60,t,0.22,'sawtooth',0.4); }
+// アイテム＝ズウィーン
+function sfxGet(){ if(!actx)return; const t=actx.currentTime; slide(420,1500,t,0.26,'triangle',0.4); slide(840,2600,t,0.26,'sine',0.15); }
+// ドラクエ風の行進曲（オリジナル・ループ）
+const BEAT=0.3;
+const MEL=[[392,1],[523.25,1],[659.25,1],[523.25,1],[587.33,1],[493.88,1],[523.25,2],[659.25,1],[698.46,1],[783.99,1],[659.25,1],[587.33,1],[523.25,1],[392,2]];
+const BASS=[[130.81,2],[196,2],[174.61,2],[196,2],[130.81,2],[164.81,2],[174.61,2],[196,2]];
+function kick(t){ if(!actx)return; const o=actx.createOscillator(),g=actx.createGain(); o.type='sine'; o.frequency.setValueAtTime(140,t); o.frequency.exponentialRampToValueAtTime(50,t+0.12); g.gain.setValueAtTime(0.28,t); g.gain.exponentialRampToValueAtTime(0.0001,t+0.14); o.connect(g); g.connect(bgmGain); o.start(t); o.stop(t+0.15); }
+function scheduleBGM(startAt){
+  if(!bgmOn||!actx) return;
+  let t=startAt; for(const [f,b] of MEL){ if(f>0) tone(f,t,b*BEAT*0.9,'square',0.14,bgmGain); t+=b*BEAT; }
+  let t2=startAt; for(const [f,b] of BASS){ if(f>0) tone(f,t2,b*BEAT*0.95,'triangle',0.2,bgmGain); t2+=b*BEAT; }
+  for(let k=0;k<16;k+=2) kick(startAt+k*BEAT);
+  const loopDur=16*BEAT;
+  bgmTimeout=setTimeout(()=>scheduleBGM(startAt+loopDur), loopDur*1000-60);
+}
+function startBGM(){ if(!actx||bgmOn) return; bgmOn=true; scheduleBGM(actx.currentTime+0.1); }
+function stopBGM(){ bgmOn=false; if(bgmTimeout){ clearTimeout(bgmTimeout); bgmTimeout=null; } }
+function toggleSound(){
+  soundOn=!soundOn;
+  if(masterGain) masterGain.gain.value = soundOn?0.6:0;
+  const b=document.getElementById('muteBtn'); if(b) b.textContent = soundOn?'🔊':'🔇';
+}
+
 const GROUND = H - 96;              // sidewalk top y
 const PANDA_X = 96;                 // panda screen x
 const INK = '#4a352a';
@@ -89,12 +153,12 @@ const ENEMIES = [
 ];
 const BOSS = {e:'🔥', name:'ブラックぱんだ', dmg:100, r:36, reward:100, speed:1.0, img:'black', disp:96};
 
-// スイーツ：クッキー+15 / スコーン+30 / シュークリームはレア(最大HP+10)
+// スイーツ：クッキー+15 / キャロットケーキ+30 / シュークリームはレア(最大HP+10)
 const SWEETS = [
   {e:'🍪', name:'クッキー',      kind:'heal',  heal:15, weight:5, img:'cookie'},
   {e:'🍩', name:'ドーナツ',      kind:'heal',  heal:20, weight:4, img:'donut'},
   {e:'🥐', name:'クロワッサン',   kind:'heal',  heal:25, weight:3, img:'croissant'},
-  {e:'🧁', name:'スコーン',      kind:'heal',  heal:30, weight:2, img:'scone'},
+  {e:'🧁', name:'キャロットケーキ', kind:'heal',  heal:30, weight:2, img:'scone'},
   {e:'🍥', name:'シュークリーム', kind:'maxup', maxup:10, weight:1, img:'choux'}, // レア:最大HP+10
 ];
 function weightedPick(arr){
@@ -493,6 +557,7 @@ function collectSweet(en){
   if(en.hit) return;
   en.hit=true; en.fade=1; en.vy=-2;
   panda.heal=1;   // 触れた合図：パンダが光る
+  sfxGet();       // アイテム＝ズウィーン
   if(en.kind==='maxup'){
     maxHp+=en.maxup; hp=Math.min(maxHp,hp+en.maxup);
     burst(en.x,en.y,'240,170,90',22); floatText(en.x,en.y-14,'最大HP+'+en.maxup+'✨','#e08a2a');
@@ -521,7 +586,7 @@ function doPunch(){
       }
     }
   }
-  if(hitAny) shake=8;
+  if(hitAny){ shake=8; sfxHit(); }
 }
 
 /* ---------- update ---------- */
@@ -577,20 +642,21 @@ function update(dt){
       if(en.type==='sweet'){
         // お菓子：触れたら回復
         if(Math.hypot(en.x-PANDA_X, en.y-(GROUND-34)) < en.r+22) collectSweet(en);
+      }else if(en.boss){
+        // ボスは大きいので、体が重なったら確実に判定（すり抜け防止）
+        if(Math.abs(en.x-PANDA_X) < 54){
+          en.hit=true; en.vx=-4; en.vy=-5; en.vr=0.3; en.gravity=true; panda.hurt=1; sfxHurt();
+          hp=0;                                          // ボスは当たったら一撃でゲームオーバー
+          burst(en.x,en.y,'216,12,14',28); floatText(PANDA_X,GROUND-70,'一撃！','#D80C0E'); shake=20;
+        }
       }else{
-        // 敵：見た目どおり、パンダの体に重なった時だけ被弾
-        const reach = en.r*0.6;                              // 絵文字の見た目の大きさ
+        // 通常敵：見た目どおり、パンダの体に重なった時だけ被弾
+        const reach = en.r*0.6;
         const touching = (en.x - reach) <= PANDA_X+16 && en.x > PANDA_X-24;
-        const vertOK = en.boss ? (en.y > GROUND-52) : true;  // ボスは低く来た時だけ当たる
-        if(touching && vertOK){
-          en.hit=true; en.vx=-4; en.vy=-5; en.vr=0.3; en.gravity=true; panda.hurt=1;
-          if(en.boss){
-            hp=0;                                          // 鳩は当たったら一撃でゲームオーバー
-            burst(en.x,en.y,'216,12,14',28); floatText(PANDA_X,GROUND-70,'一撃！','#D80C0E'); shake=20;
-          }else{
-            const dmg=en.dmg||5; hp-=dmg;                  // 被弾：パンダが赤く光る
-            burst(en.x,en.y,'216,12,14',dmg>=50?18:10); floatText(en.x,en.y-24,'-'+dmg,'#D80C0E'); shake=Math.min(18,6+dmg*0.2);
-          }
+        if(touching){
+          en.hit=true; en.vx=-4; en.vy=-5; en.vr=0.3; en.gravity=true; panda.hurt=1; sfxHurt();
+          const dmg=en.dmg||5; hp-=dmg;
+          burst(en.x,en.y,'216,12,14',dmg>=50?18:10); floatText(en.x,en.y-24,'-'+dmg,'#D80C0E'); shake=Math.min(18,6+dmg*0.2);
         }
       }
     }
@@ -698,19 +764,21 @@ function loop(ts){
 
 function endGame(){
   gameOver=true; running=false;
+  stopBGM();
+  if(actx){ const t=actx.currentTime; slide(400,120,t,0.6,'sawtooth',0.35); }  // ゲームオーバーの下降音
   overlay.classList.remove('hidden');
   overlay.innerHTML='<h2>おつかれさま 🐼</h2>'+
     '<p>栄を <b>'+Math.floor(dist)+'m</b> 歩いたよ！<br>また明日、街を歩こまい。</p>'+
     '<button id="startBtn">もう一回あるく</button>';
   document.getElementById('startBtn').onclick=start;
 }
-function start(){ overlay.classList.add('hidden'); reset(); }
+function start(){ overlay.classList.add('hidden'); reset(); initAudio(); resumeAudio(); startBGM(); }
 document.getElementById('startBtn').onclick=start;
 
 /* ---------- input ---------- */
 function canvasPos(evt){ const r=cv.getBoundingClientRect(); const t=evt.touches?evt.touches[0]:evt; return {x:(t.clientX-r.left)*(W/r.width), y:(t.clientY-r.top)*(H/r.height)}; }
 function down(e){
-  e.preventDefault(); if(!running) return;
+  e.preventDefault(); resumeAudio(); if(!running) return;
   const p=canvasPos(e);
   // tapping an enemy or the front => punch; tapping right side => dash
   let onEnemy=false;
@@ -725,6 +793,7 @@ cv.addEventListener('touchstart',down,{passive:false});
 window.addEventListener('touchend',up);
 window.addEventListener('keydown',e=>{ keys[e.key]=true; if(e.key===' '){ e.preventDefault(); doPunch(); } });
 window.addEventListener('keyup',e=>{ keys[e.key]=false; });
+document.getElementById('muteBtn').addEventListener('click',e=>{ e.stopPropagation(); initAudio(); resumeAudio(); toggleSound(); });
 
 reset(); running=false;
 requestAnimationFrame(loop);
