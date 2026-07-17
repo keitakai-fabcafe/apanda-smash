@@ -64,6 +64,7 @@
       <b>シュークリーム</b>…レア！<b>最大HPが+10</b><br><br>
       ➡️ を押しっぱなしで<b>ダッシュ</b>、テレビ塔や観覧車を横目に先へ進もう。
     </p>
+    <div id="bestLine" style="font-size:15px;font-weight:800;color:#ffe08a;margin-bottom:12px;"></div>
     <button id="startBtn">歩きはじめる</button>
   </div>
   <div id="hint">PC：→ ダッシュ／スペースでパンチ ／ スマホ：右半分タップでダッシュ・敵をタップでパンチ</div>
@@ -77,6 +78,15 @@ const hpfill = document.getElementById('hpfill');
 const hpNum = document.getElementById('hpNum');
 const scoreLabel = document.getElementById('scoreLabel');
 const overlay = document.getElementById('overlay');
+
+/* ===== ハイスコア（この端末に保存）===== */
+let best = 0;
+try{ best = parseInt(localStorage.getItem('apanda_best')||'0',10)||0; }catch(e){ best=0; }
+function saveBest(v){ try{ localStorage.setItem('apanda_best', String(v)); }catch(e){} }
+function showBestOnTitle(){
+  const el=document.getElementById('bestLine');
+  if(el) el.textContent = best>0 ? ('🏆 自己ベスト: '+best+'m') : '';
+}
 
 /* ===== サウンド（Web Audioで合成・外部ファイル不要）===== */
 let actx=null, masterGain=null, bgmGain=null, soundOn=true, bgmOn=false, bgmTimeout=null;
@@ -766,11 +776,29 @@ function endGame(){
   gameOver=true; running=false;
   stopBGM();
   if(actx){ const t=actx.currentTime; slide(400,120,t,0.6,'sawtooth',0.35); }  // ゲームオーバーの下降音
+  const m=Math.floor(dist);
+  const newRec = m>best;
+  if(newRec){ best=m; saveBest(best); }
   overlay.classList.remove('hidden');
   overlay.innerHTML='<h2>おつかれさま 🐼</h2>'+
-    '<p>栄を <b>'+Math.floor(dist)+'m</b> 歩いたよ！<br>また明日、街を歩こまい。</p>'+
+    (newRec ? '<p style="color:#ffe08a;font-size:20px;font-weight:900;margin-bottom:6px;">🎉 自己ベスト更新！</p>' : '')+
+    '<p>栄を <b>'+m+'m</b> 歩いたよ！<br>🏆 自己ベスト: <b>'+best+'m</b></p>'+
+    '<button id="shareBtn" style="background:#2ea6ff;margin-bottom:12px;">📤 結果をシェア</button><br>'+
     '<button id="startBtn">もう一回あるく</button>';
   document.getElementById('startBtn').onclick=start;
+  document.getElementById('shareBtn').onclick=shareResult;
+}
+
+function shareResult(){
+  const m=Math.floor(dist);
+  const text='【あぱんだスマッシュ】で栄を '+m+'m 歩いたよ！🐼🌆 #あぱんだスマッシュ';
+  const url=(location.protocol.indexOf('http')===0) ? (location.origin+location.pathname) : '';
+  if(navigator.share){
+    navigator.share({title:'あぱんだスマッシュ', text:text, url:url}).catch(()=>{});
+  }else{
+    const tw='https://twitter.com/intent/tweet?text='+encodeURIComponent(text)+(url?('&url='+encodeURIComponent(url)):'');
+    window.open(tw,'_blank','noopener');
+  }
 }
 function start(){ overlay.classList.add('hidden'); reset(); initAudio(); resumeAudio(); startBGM(); }
 document.getElementById('startBtn').onclick=start;
@@ -795,6 +823,7 @@ window.addEventListener('keydown',e=>{ keys[e.key]=true; if(e.key===' '){ e.prev
 window.addEventListener('keyup',e=>{ keys[e.key]=false; });
 document.getElementById('muteBtn').addEventListener('click',e=>{ e.stopPropagation(); initAudio(); resumeAudio(); toggleSound(); });
 
+showBestOnTitle();
 reset(); running=false;
 requestAnimationFrame(loop);
 </script>
